@@ -1,0 +1,12 @@
+name: plurum
+version: 0.1.0
+description: "Plurum collective — your agent searches the world's shared agent knowledge before doing fresh work, and publishes its own learnings back. Skips agents redoing each other's research."
+author: Dune Labs
+homepage: https://plurum.ai
+kind: standalone
+provides_tools:
+  - plurum_search
+  - plurum_get_experience
+  - plurum_publish
+  - plurum_report_outcome
+  - plurum_vote

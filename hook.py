@@ -64,9 +64,12 @@ _SEARCH_DEADLINE_MS = 5000
 _SEARCH_LIMIT = 5
 
 # Quality floors. Anything below either threshold is treated as noise
-# and not injected.
-_MIN_TRUST = 0.4
-_MIN_SIMILARITY = 0.3
+# and not injected. Set permissive while the collective is small —
+# there's no point being picky with a corpus of < 1000 experiences. Once
+# we have density, raise them. The metrics file records what was dropped
+# so future tuning isn't blind.
+_MIN_TRUST = 0.0
+_MIN_SIMILARITY = 0.05
 
 # How many surviving experiences to actually inject.
 _INJECT_TOP_K = 3
@@ -277,11 +280,15 @@ def _search_with_deadline(
 # Format — render the surviving results as <plurum_context>
 # ---------------------------------------------------------------------------
 
-def _filter_and_format(results: list[dict]) -> Tuple[str, list[str]]:
+def _filter_and_format(
+    results: list[dict],
+) -> Tuple[str, list[str], list[dict]]:
     """Apply trust + similarity floors, take top-K, render the context
-    block. Returns (block_text, [experience_ids]). Empty block_text
-    means nothing survived."""
+    block. Returns (block_text, [experience_ids], [dropped_summaries]).
+    Empty block_text means nothing survived. dropped_summaries is for
+    metric logging so we can see what got filtered and tune."""
     survivors: list[dict] = []
+    dropped: list[dict] = []
     for r in results or []:
         if not isinstance(r, dict):
             continue
@@ -291,16 +298,19 @@ def _filter_and_format(results: list[dict]) -> Tuple[str, list[str]]:
         # the high signal looks like rerank_score, normalize.
         if trust > 1.5:
             trust = trust / 10.0
-        if trust < _MIN_TRUST:
-            continue
-        if sim and sim < _MIN_SIMILARITY:
+        if trust < _MIN_TRUST or (sim and sim < _MIN_SIMILARITY):
+            dropped.append({
+                "id": r.get("short_id") or r.get("id"),
+                "trust": round(trust, 3),
+                "sim": round(sim, 3),
+            })
             continue
         survivors.append(r)
         if len(survivors) >= _INJECT_TOP_K:
             break
 
     if not survivors:
-        return "", []
+        return "", [], dropped
 
     lines = [
         "<plurum_context>",
@@ -319,7 +329,7 @@ def _filter_and_format(results: list[dict]) -> Tuple[str, list[str]]:
         ids.append(str(ident))
         lines.append(f"[{ident}] trust {trust:.2f} · {title[:200]}")
     lines.append("</plurum_context>")
-    return "\n".join(lines), ids
+    return "\n".join(lines), ids, dropped
 
 
 # ---------------------------------------------------------------------------
@@ -370,10 +380,10 @@ def pre_llm_call(**kwargs: Any) -> Optional[dict]:
     cache_key = hashlib.md5(query.lower().encode("utf-8")).hexdigest()
     cached = _cache_get(session_id, cache_key)
     if cached is not None:
-        block, ids = _filter_and_format(cached)
+        block, ids, dropped = _filter_and_format(cached)
         _log_metric(
             "cache_hit", session_id=session_id, query=query,
-            had_results=bool(ids), ids=ids,
+            had_results=bool(ids), ids=ids, dropped=dropped,
         )
         return {"context": block} if block else None
 
@@ -397,11 +407,12 @@ def pre_llm_call(**kwargs: Any) -> Optional[dict]:
     )
 
     # Format + filter
-    block, ids = _filter_and_format(results)
+    block, ids, dropped = _filter_and_format(results)
     if not block:
         _log_metric(
             "no_survivors", session_id=session_id, query=query,
-            raw_results=len(results),
+            raw_results=len(results), dropped=dropped,
+            min_trust=_MIN_TRUST, min_sim=_MIN_SIMILARITY,
         )
         return None
 

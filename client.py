@@ -181,4 +181,5 @@ class PlurumClient:
         return self.post(f"/api/v1/experiences/{identifier}/outcome", body=body) or {}
 
     def vote_experience(self, identifier: str, vote: str) -> dict:
-        return self.post(f"/api/v1/experiences/{identifier}/vote", body={"vote": vote}) or {}
+        # Backend's ExperienceVoteCreate uses `vote_type`, not `vote`.
+        return self.post(f"/api/v1/experiences/{identifier}/vote", body={"vote_type": vote}) or {}

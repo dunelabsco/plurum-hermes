@@ -315,9 +315,18 @@ def handle_report_outcome(args: dict, **kwargs) -> str:
             "Need experience_id and outcome in {success, partial, failure}."
         )
 
-    body: Dict[str, Any] = {"outcome": outcome}
+    # Backend's OutcomeReportCreate takes a boolean `success` plus
+    # optional `context_notes`. Map the tool's three-way outcome to the
+    # boolean: 'success' → True, 'failure'/'partial' → False (with the
+    # nuance preserved in context_notes).
+    body: Dict[str, Any] = {"success": outcome == "success"}
+    note_parts = []
+    if outcome != "success":
+        note_parts.append(f"outcome={outcome}")
     if args.get("note"):
-        body["note"] = str(args["note"])[:500]
+        note_parts.append(str(args["note"])[:500])
+    if note_parts:
+        body["context_notes"] = " | ".join(note_parts)
 
     try:
         client.report_outcome(identifier, body)

@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import logging
 
-from .tools import TOOLS, _check_available, save_config
+from .client import save_config  # noqa: F401  (re-exported for setup wizard)
+from .tools import TOOLS, _check_available
 
 logger = logging.getLogger(__name__)
 

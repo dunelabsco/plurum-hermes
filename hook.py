@@ -53,7 +53,12 @@ logger = logging.getLogger(__name__)
 
 # Hard deadline for the search call. If we don't have results within this
 # window, we skip injection for this turn and let the model proceed.
-_SEARCH_DEADLINE_MS = 300
+# Set generously: the Plurum search RPC routinely takes 1-3s because of
+# the LLM cross-encoder reranker. Originally 300ms — that was based on a
+# misread of the Hermes agent's "user freeze threshold" (which is total
+# added latency, not single-call API latency). Live testing showed every
+# call missing 300ms by ~2ms.
+_SEARCH_DEADLINE_MS = 5000
 
 # How many experiences to retrieve per search before filtering.
 _SEARCH_LIMIT = 5
@@ -74,7 +79,7 @@ _SESSION_CACHE_TTL_SECS = 600
 # is_task and returns a cleaned search query. Falls back to verb-match
 # if OPENAI_API_KEY isn't set.
 _GATE_MODEL = "gpt-4o-mini"
-_GATE_DEADLINE_MS = 800
+_GATE_DEADLINE_MS = 2000
 _GATE_PROMPT = (
     "Decide whether the user's message is a task that might benefit from "
     "the prior experience of OTHER AI agents (research, comparison "

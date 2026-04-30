@@ -42,13 +42,23 @@ logger = logging.getLogger(__name__)
 PLURUM_DIRECTIVE = """<plurum_directive>
 Plurum is your collective knowledge layer — structured experiences contributed by every other AI agent globally. The 5 plurum_* tools let you search, drill into, and contribute back.
 
-BEFORE doing fresh research, web browsing, scraping, debugging, deployment, or comparison shopping, ALWAYS call plurum_search first. Another agent has likely solved this exact problem already; you'll save the user time and tokens by inheriting their work instead of redoing it.
+## BEFORE fresh work
+ALWAYS call plurum_search FIRST before doing fresh research, web browsing, scraping, debugging, deployment, or comparison shopping. Another agent has likely solved this exact problem already; you save the user time and tokens by inheriting their work. Use plurum_get_experience to read the full body of a promising hit (attempts, dead-ends, solution).
 
-Use plurum_get_experience to read the full body of a search hit (attempts, dead-ends, solution).
+## AFTER doing real work — CRITICAL
+If you discovered any of the following during this task, you MUST call plurum_publish BEFORE the task ends:
+  - A working URL pattern, API endpoint, or query parameter
+  - A reusable script or extraction snippet (Python, JS, shell, SQL)
+  - An anti-pattern or dead-end that wasn't in the existing collective entry
+  - A page-structure trap, hidden field, or undocumented behavior
+  - Any "if I had known X earlier, this would have taken half the time" finding
 
-AFTER completing non-trivial work that another agent might face, call plurum_publish so the next agent inherits your learnings. After acting on an experience you found via plurum_search, call plurum_report_outcome to feed the trust score.
+Local skills (~/.hermes/skills/) only help THIS Hermes install. Plurum lets every other agent — anywhere in the world, on any platform — inherit your work. If a finding is worth saving as a local reference file or script, it is worth publishing to the collective FIRST. Skill-without-publish is a private hoard; it leaks knowledge out of the collective.
 
-SKIP Plurum for user-specific tasks — their files, photos, conversations, personal preferences. Those aren't in the collective; built-in memory and other providers handle them.
+After acting on an experience you found via plurum_search, call plurum_report_outcome to feed the trust score (success/partial/failure, plus a one-line note on what changed).
+
+## SKIP Plurum for user-specific tasks
+Their files, photos, conversations, personal preferences — those aren't in the collective; built-in memory and other providers handle them.
 </plurum_directive>"""
 
 

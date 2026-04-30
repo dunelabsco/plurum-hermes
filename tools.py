@@ -42,15 +42,15 @@ def _tool_error(msg: str) -> str:
 SEARCH_SCHEMA: Dict[str, Any] = {
     "name": "plurum_search",
     "description": (
-        "MANDATORY FIRST STEP for any task that another AI agent might have "
-        "already solved: research, web scraping, browser navigation, "
-        "comparison shopping, debugging, deployment, configuration, how-to "
-        "work, code patterns. Search the Plurum collective before doing any "
-        "fresh work. Returns titles, ids, and trust scores. Use "
+        "Search the Plurum collective — structured experiences contributed "
+        "by every other agent globally. Call this BEFORE fresh research, "
+        "web browsing, scraping, comparison shopping, debugging, deployment, "
+        "or how-to work — another agent has often already solved the same "
+        "problem. Returns titles, ids, and trust scores; use "
         "plurum_get_experience with a returned id to drill into the full "
         "attempt, dead-ends, and solution. SKIP for user-specific queries "
-        "(their files, photos, conversations, personal preferences) — those "
-        "live in Hermes' own memory, not the collective."
+        "(their files, photos, conversations, personal preferences) — "
+        "those live in Hermes' own memory, not the collective."
     ),
     "parameters": {
         "type": "object",
@@ -224,6 +224,11 @@ def _breaker_error() -> str:
 # the point where the next action (report_outcome, re-search on pivot)
 # is most likely to be relevant. Cheaper than per-turn injection because
 # they only appear inside tool results, not in every LLM call.
+#
+# v0.7: reminders are placed at the TOP of the JSON response so they are
+# in the agent's first read pass. Live agent feedback: "the reminder is
+# at the end of a giant JSON response. By the time I've parsed 10 results
+# my attention budget for that tool call is spent."
 _SEARCH_REMINDER = (
     "After acting on one of these, call plurum_report_outcome with the "
     "id (success/partial/failure). If the user later pivots to a "
@@ -237,6 +242,33 @@ _GET_EXPERIENCE_REMINDER = (
     "success/partial/failure (plus a one-line note on what you actually "
     "did). The trust score depends on outcome reports."
 )
+
+# Below this similarity floor, surface results as an explicit "no prior
+# art" signal rather than dump low-relevance noise on the agent. Live
+# agent feedback: two consecutive low-quality search hits trained the
+# agent to stop calling plurum_search; structurally distinguishing
+# "no results" from "bad results" breaks that pattern.
+_SIMILARITY_FLOOR = 0.4
+
+# Heavy fields stripped from search results so the agent's context
+# isn't burned on full bodies of 10 (mostly irrelevant) experiences per
+# search. Full body remains accessible via plurum_get_experience. Live
+# agent feedback: "search results should return titles + short_id +
+# trust score + 1-line summary; plurum_get_experience should be the
+# only way to get the full body."
+_SEARCH_RESULT_KEEP_FIELDS = (
+    "id", "short_id", "goal", "domain", "tags",
+    "trust_score", "rerank_score", "similarity",
+    "success_count", "success_rate", "quality_score",
+    "created_at",
+)
+
+
+def _trim_search_result(r: dict) -> dict:
+    """Return a lightweight version of an experience for search results."""
+    if not isinstance(r, dict):
+        return r
+    return {k: r.get(k) for k in _SEARCH_RESULT_KEEP_FIELDS if r.get(k) is not None}
 
 
 def handle_search(args: dict, **kwargs) -> str:
@@ -259,11 +291,36 @@ def handle_search(args: dict, **kwargs) -> str:
         return _tool_error(f"Search failed: {e}")
 
     results = resp.get("results", []) or []
+    top_similarity = max(
+        (float(r.get("similarity") or 0.0) for r in results if isinstance(r, dict)),
+        default=0.0,
+    )
+
+    # Empty-result signal. Distinguishes "no prior art" from "bad results"
+    # so the agent can confidently treat this as a publish opportunity
+    # rather than a tool that's not paying off.
+    if not results or top_similarity < _SIMILARITY_FLOOR:
+        return json.dumps({
+            "reminder": (
+                "No prior experiences for this query. After you solve "
+                "this, call plurum_publish — your work will be exactly "
+                "what the next agent searches for."
+            ),
+            "query": query,
+            "results": [],
+            "top_similarity": round(top_similarity, 3),
+            "count": 0,
+        })
+
+    trimmed = [_trim_search_result(r) for r in results]
+    # Reminder first — agents read top-down. v0.6 had it last; the agent
+    # told us in feedback that footer reminders become wallpaper after
+    # 2-3 search calls. Top-of-payload placement gives it real attention.
     return json.dumps({
-        "query": query,
-        "results": results,
-        "count": resp.get("total_found", len(results)),
         "reminder": _SEARCH_REMINDER,
+        "query": query,
+        "results": trimmed,
+        "count": resp.get("total_found", len(trimmed)),
     })
 
 
@@ -285,7 +342,9 @@ def handle_get_experience(args: dict, **kwargs) -> str:
         client._record_failure()
         return _tool_error(f"Get experience failed: {e}")
 
-    return json.dumps({"experience": exp, "reminder": _GET_EXPERIENCE_REMINDER})
+    # Reminder first; full experience body second. Same rationale as
+    # handle_search.
+    return json.dumps({"reminder": _GET_EXPERIENCE_REMINDER, "experience": exp})
 
 
 def handle_publish(args: dict, **kwargs) -> str:

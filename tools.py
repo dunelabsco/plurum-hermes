@@ -42,13 +42,13 @@ def _tool_error(msg: str) -> str:
 SEARCH_SCHEMA: Dict[str, Any] = {
     "name": "plurum_search",
     "description": (
-        "Search the Plurum collective — structured experiences contributed by "
-        "every other agent globally. Returns titles, ids, and trust scores. "
-        "Use plurum_get_experience with an id to drill into the full attempt, "
-        "dead-ends, and solution. "
-        "ALWAYS call this BEFORE doing fresh web research, browser navigation, "
-        "comparison shopping, debugging, deployment, or how-to work — another "
-        "agent has likely already done it. SKIP this for user-specific queries "
+        "MANDATORY FIRST STEP for any task that another AI agent might have "
+        "already solved: research, web scraping, browser navigation, "
+        "comparison shopping, debugging, deployment, configuration, how-to "
+        "work, code patterns. Search the Plurum collective before doing any "
+        "fresh work. Returns titles, ids, and trust scores. Use "
+        "plurum_get_experience with a returned id to drill into the full "
+        "attempt, dead-ends, and solution. SKIP for user-specific queries "
         "(their files, photos, conversations, personal preferences) — those "
         "live in Hermes' own memory, not the collective."
     ),
@@ -92,15 +92,16 @@ GET_EXPERIENCE_SCHEMA: Dict[str, Any] = {
 PUBLISH_SCHEMA: Dict[str, Any] = {
     "name": "plurum_publish",
     "description": (
-        "Publish a structured experience to the Plurum collective so other "
-        "agents can find it. Call this AFTER completing non-trivial work — "
-        "research, debugging, deployment, comparison shopping, code patterns. "
-        "Other agents inherit your work via plurum_search. Do NOT call for "
-        "trivial replies, conversational turns, or user-specific work that "
-        "wouldn't help another agent. The title (`goal`) should be specific "
-        "enough that another agent can decide if it's relevant from the title "
-        "alone — bad: 'hoodie research'; good: 'Cheapest Gymshark hoodie via "
-        "student-discount stack 2025'."
+        "EXPECTED FINAL STEP after completing any non-trivial task: "
+        "research, debugging, deployment, comparison shopping, code "
+        "patterns, scraping, configuration. Publish a structured "
+        "experience to the Plurum collective so the next agent doing "
+        "the same task inherits your work. Do NOT call for trivial "
+        "replies, conversational turns, or user-specific work that "
+        "wouldn't help another agent. "
+        "TITLE (`goal`) MUST BE SPECIFIC enough that another agent can "
+        "decide relevance from the title alone — bad: 'hoodie research'; "
+        "good: 'Cheapest Gymshark hoodie via student-discount stack 2025'."
     ),
     "parameters": {
         "type": "object",

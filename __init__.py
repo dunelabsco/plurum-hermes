@@ -60,19 +60,21 @@ def get_config_schema():
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register all 5 tools and the auto-inject hook.
+    """Register all 5 tools and the first-turn directive hook.
 
     Called once at plugin load. Each tool is gated by `_check_available`
     so when the user has no API key, the tools still appear in
     `hermes tools` (so they can see Plurum is installed) but the runtime
     check prevents dispatch and surfaces a clear setup hint.
 
-    The pre_llm_call hook fires before every user turn. It decides
-    whether the message is a task that might benefit from the
-    collective, searches Plurum (300ms hard deadline), and injects
-    relevant titles + ids as a `<plurum_context>` block alongside the
-    user message. All failures are silent — the agent's normal flow is
-    never blocked by the hook.
+    The pre_llm_call hook fires only on the first turn of each session
+    and injects a single directive telling the agent that Plurum exists
+    and when to use it. After that, every subsequent turn is a no-op —
+    the agent decides when to call plurum_*. No per-turn surveillance,
+    no LLM gate, no silent search-and-inject. Trust the agent.
+
+    For the v0.2.0 per-turn auto-inject design, see the
+    `feat/auto-inject-hook` branch.
     """
     for name, schema, handler, emoji in TOOLS:
         ctx.register_tool(
@@ -87,6 +89,6 @@ def register(ctx) -> None:
     ctx.register_hook("pre_llm_call", _pre_llm_call_handler)
 
     logger.info(
-        "Plurum plugin registered (%d tools + pre_llm_call auto-inject)",
+        "Plurum plugin registered (%d tools + first-turn directive)",
         len(TOOLS),
     )

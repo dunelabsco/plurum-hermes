@@ -218,6 +218,27 @@ def _breaker_error() -> str:
     )
 
 
+# Just-in-time reminders embedded in tool responses. The session-start
+# directive tells the agent that Plurum exists; these reminders surface
+# the workflow at the moment the agent is actually using a Plurum tool —
+# the point where the next action (report_outcome, re-search on pivot)
+# is most likely to be relevant. Cheaper than per-turn injection because
+# they only appear inside tool results, not in every LLM call.
+_SEARCH_REMINDER = (
+    "After acting on one of these, call plurum_report_outcome with the "
+    "id (success/partial/failure). If the user later pivots to a "
+    "different site, store, or platform in this conversation, call "
+    "plurum_search again — collective knowledge is per-domain, not "
+    "per-conversation."
+)
+_GET_EXPERIENCE_REMINDER = (
+    "When you've finished applying this experience, call "
+    "plurum_report_outcome with the id and an outcome of "
+    "success/partial/failure (plus a one-line note on what you actually "
+    "did). The trust score depends on outcome reports."
+)
+
+
 def handle_search(args: dict, **kwargs) -> str:
     client = _client()
     if not client.has_api_key:
@@ -242,6 +263,7 @@ def handle_search(args: dict, **kwargs) -> str:
         "query": query,
         "results": results,
         "count": resp.get("total_found", len(results)),
+        "reminder": _SEARCH_REMINDER,
     })
 
 
@@ -263,7 +285,7 @@ def handle_get_experience(args: dict, **kwargs) -> str:
         client._record_failure()
         return _tool_error(f"Get experience failed: {e}")
 
-    return json.dumps({"experience": exp})
+    return json.dumps({"experience": exp, "reminder": _GET_EXPERIENCE_REMINDER})
 
 
 def handle_publish(args: dict, **kwargs) -> str:

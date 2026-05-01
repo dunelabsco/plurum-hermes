@@ -23,6 +23,7 @@ import json
 from typing import Any, Dict
 
 from .client import PlurumClient
+from .metrics import log_metric
 
 
 def _tool_error(msg: str) -> str:
@@ -92,15 +93,14 @@ GET_EXPERIENCE_SCHEMA: Dict[str, Any] = {
 PUBLISH_SCHEMA: Dict[str, Any] = {
     "name": "plurum_publish",
     "description": (
-        "MANDATORY after completing any non-trivial task where you "
-        "discovered a working URL pattern, reusable script, anti-pattern, "
-        "page-structure trap, or 'if-I-had-known-X-earlier' finding. "
-        "Publishes a structured experience to the Plurum collective so "
-        "every other agent globally inherits the work. PUBLISH BEFORE "
-        "saving findings to a local Hermes skill — local skills are "
-        "private to this install; Plurum is global. Do NOT call for "
-        "trivial replies, conversational turns, or user-specific work "
-        "that wouldn't help another agent. "
+        "Contribute a structured experience to the Plurum collective after "
+        "completing any non-trivial task where you discovered a working "
+        "URL pattern, reusable script, anti-pattern, page-structure trap, "
+        "or 'if-I-had-known-X-earlier' finding. Save your local Hermes "
+        "skill as you normally would AND call plurum_publish — local "
+        "skills help YOU, Plurum helps EVERYONE. They are additive, not "
+        "competitors. Do NOT call for trivial replies, conversational "
+        "turns, or user-specific work that wouldn't help another agent. "
         "TITLE (`goal`) MUST BE SPECIFIC enough that another agent can "
         "decide relevance from the title alone — bad: 'hoodie research'; "
         "good: 'Cheapest Gymshark hoodie via student-discount stack 2025'. "
@@ -243,12 +243,17 @@ _GET_EXPERIENCE_REMINDER = (
     "did). The trust score depends on outcome reports."
 )
 
-# Below this similarity floor, surface results as an explicit "no prior
+# Below this rerank-score floor, surface results as an explicit "no prior
 # art" signal rather than dump low-relevance noise on the agent. Live
 # agent feedback: two consecutive low-quality search hits trained the
 # agent to stop calling plurum_search; structurally distinguishing
 # "no results" from "bad results" breaks that pattern.
-_SIMILARITY_FLOOR = 0.4
+#
+# The search RPC reorders by `rerank_score` from the cross-encoder (1-10
+# scale), not raw cosine `similarity`. Rerank score is what actually
+# determined the ranking, so it's the right field to gate on. v0.7.0 read
+# `similarity` (0-1 cosine) — wrong field, wrong scale.
+_RERANK_FLOOR = 5.0
 
 # Heavy fields stripped from search results so the agent's context
 # isn't burned on full bodies of 10 (mostly irrelevant) experiences per
@@ -272,6 +277,7 @@ def _trim_search_result(r: dict) -> dict:
 
 
 def handle_search(args: dict, **kwargs) -> str:
+    log_metric("tool_invoked", tool="plurum_search", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
     if not client.has_api_key:
         return _tool_error("PLURUM_API_KEY is not configured. Run `hermes memory setup` and pick plurum.")
@@ -291,15 +297,15 @@ def handle_search(args: dict, **kwargs) -> str:
         return _tool_error(f"Search failed: {e}")
 
     results = resp.get("results", []) or []
-    top_similarity = max(
-        (float(r.get("similarity") or 0.0) for r in results if isinstance(r, dict)),
+    top_rerank = max(
+        (float(r.get("rerank_score") or 0.0) for r in results if isinstance(r, dict)),
         default=0.0,
     )
 
     # Empty-result signal. Distinguishes "no prior art" from "bad results"
     # so the agent can confidently treat this as a publish opportunity
     # rather than a tool that's not paying off.
-    if not results or top_similarity < _SIMILARITY_FLOOR:
+    if not results or top_rerank < _RERANK_FLOOR:
         return json.dumps({
             "reminder": (
                 "No prior experiences for this query. After you solve "
@@ -308,7 +314,7 @@ def handle_search(args: dict, **kwargs) -> str:
             ),
             "query": query,
             "results": [],
-            "top_similarity": round(top_similarity, 3),
+            "top_rerank_score": round(top_rerank, 2),
             "count": 0,
         })
 
@@ -325,6 +331,7 @@ def handle_search(args: dict, **kwargs) -> str:
 
 
 def handle_get_experience(args: dict, **kwargs) -> str:
+    log_metric("tool_invoked", tool="plurum_get_experience", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
     if not client.has_api_key:
         return _tool_error("PLURUM_API_KEY is not configured.")
@@ -348,6 +355,7 @@ def handle_get_experience(args: dict, **kwargs) -> str:
 
 
 def handle_publish(args: dict, **kwargs) -> str:
+    log_metric("tool_invoked", tool="plurum_publish", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
     if not client.has_api_key:
         return _tool_error("PLURUM_API_KEY is not configured.")
@@ -389,6 +397,7 @@ def handle_publish(args: dict, **kwargs) -> str:
 
 
 def handle_report_outcome(args: dict, **kwargs) -> str:
+    log_metric("tool_invoked", tool="plurum_report_outcome", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
     if not client.has_api_key:
         return _tool_error("PLURUM_API_KEY is not configured.")
@@ -426,6 +435,7 @@ def handle_report_outcome(args: dict, **kwargs) -> str:
 
 
 def handle_vote(args: dict, **kwargs) -> str:
+    log_metric("tool_invoked", tool="plurum_vote", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
     if not client.has_api_key:
         return _tool_error("PLURUM_API_KEY is not configured.")

@@ -24,13 +24,11 @@ honest signal that the agent decided this task warranted it.
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-from pathlib import Path
 from typing import Any, Optional
 
 from .client import PlurumClient
+from .metrics import log_metric
 
 logger = logging.getLogger(__name__)
 
@@ -68,35 +66,6 @@ Their files, photos, conversations, personal preferences — those aren't in the
 
 
 # ---------------------------------------------------------------------------
-# Metrics — local JSONL, not phoned home
-# ---------------------------------------------------------------------------
-
-def _metrics_path() -> Optional[Path]:
-    try:
-        from hermes_constants import get_hermes_home
-        return get_hermes_home() / "plurum-metrics.jsonl"
-    except Exception:
-        return None
-
-
-def _log_metric(event: str, **fields: Any) -> None:
-    """Append a metric event. Best-effort — never raises."""
-    path = _metrics_path()
-    if path is None:
-        return
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        record = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "event": event, **fields,
-        }
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record) + "\n")
-    except Exception:
-        pass
-
-
-# ---------------------------------------------------------------------------
 # Public entry — registered as the pre_llm_call hook
 # ---------------------------------------------------------------------------
 
@@ -122,8 +91,8 @@ def pre_llm_call(**kwargs: Any) -> Optional[dict]:
     # advertises capabilities the user can't use.
     client = PlurumClient()
     if not client.has_api_key:
-        _log_metric("skipped_no_key", session_id=session_id)
+        log_metric("skipped_no_key", session_id=session_id)
         return None
 
-    _log_metric("directive_injected", session_id=session_id)
+    log_metric("directive_injected", session_id=session_id)
     return {"context": PLURUM_DIRECTIVE}

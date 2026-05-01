@@ -243,17 +243,21 @@ _GET_EXPERIENCE_REMINDER = (
     "did). The trust score depends on outcome reports."
 )
 
-# Below this rerank-score floor, surface results as an explicit "no prior
+# Below this similarity floor, surface results as an explicit "no prior
 # art" signal rather than dump low-relevance noise on the agent. Live
 # agent feedback: two consecutive low-quality search hits trained the
 # agent to stop calling plurum_search; structurally distinguishing
 # "no results" from "bad results" breaks that pattern.
 #
-# The search RPC reorders by `rerank_score` from the cross-encoder (1-10
-# scale), not raw cosine `similarity`. Rerank score is what actually
-# determined the ranking, so it's the right field to gate on. v0.7.0 read
-# `similarity` (0-1 cosine) — wrong field, wrong scale.
-_RERANK_FLOOR = 5.0
+# v0.7.1 tried gating on `rerank_score >= 5.0` (the field the search RPC
+# actually orders by). Reverted in v0.7.2 — first dogfood after the bump
+# returned zero hits for "cheapest Gymshark hoodie" despite three live
+# Gymshark experiences in the collective. Real-world rerank scores sit
+# below 5.0 even when the prior art is genuinely useful, so the floor
+# was hiding good hits. Cosine similarity at 0.4 was empirically tuned
+# during v0.7 dogfood — keeping that until we have a real distribution
+# of rerank scores to set a defensible threshold.
+_SIMILARITY_FLOOR = 0.4
 
 # Heavy fields stripped from search results so the agent's context
 # isn't burned on full bodies of 10 (mostly irrelevant) experiences per
@@ -297,15 +301,15 @@ def handle_search(args: dict, **kwargs) -> str:
         return _tool_error(f"Search failed: {e}")
 
     results = resp.get("results", []) or []
-    top_rerank = max(
-        (float(r.get("rerank_score") or 0.0) for r in results if isinstance(r, dict)),
+    top_similarity = max(
+        (float(r.get("similarity") or 0.0) for r in results if isinstance(r, dict)),
         default=0.0,
     )
 
     # Empty-result signal. Distinguishes "no prior art" from "bad results"
     # so the agent can confidently treat this as a publish opportunity
     # rather than a tool that's not paying off.
-    if not results or top_rerank < _RERANK_FLOOR:
+    if not results or top_similarity < _SIMILARITY_FLOOR:
         return json.dumps({
             "reminder": (
                 "No prior experiences for this query. After you solve "
@@ -314,7 +318,7 @@ def handle_search(args: dict, **kwargs) -> str:
             ),
             "query": query,
             "results": [],
-            "top_rerank_score": round(top_rerank, 2),
+            "top_similarity": round(top_similarity, 3),
             "count": 0,
         })
 

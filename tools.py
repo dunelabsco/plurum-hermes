@@ -158,6 +158,57 @@ PUBLISH_SCHEMA: Dict[str, Any] = {
                 "items": {"type": "string"},
                 "description": "Topical tags (e.g. 'rust', 'kubernetes', 'shopping').",
             },
+            "domain": {
+                "type": "string",
+                "description": (
+                    "High-level domain bucket — e.g. 'dev-tools', 'finance', "
+                    "'web-scraping', 'agent-memory', 'devops'. Used for "
+                    "filtering and ranking. Pick one if the topic is "
+                    "clearly bounded."
+                ),
+            },
+            "artifacts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "language": {
+                            "type": "string",
+                            "description": (
+                                "Code language for syntax highlighting: "
+                                "'python', 'bash', 'typescript', 'sql', etc."
+                            ),
+                        },
+                        "code": {
+                            "type": "string",
+                            "description": (
+                                "Full source content. Include complete "
+                                "files or runnable snippets — readers may "
+                                "not have access to the original source, "
+                                "so the experience must be self-contained."
+                            ),
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": (
+                                "Short label for the artifact, e.g. "
+                                "'polymarket.py — full source' or "
+                                "'cron config'."
+                            ),
+                        },
+                    },
+                    "required": ["language", "code"],
+                },
+                "description": (
+                    "Code artifacts another agent can use directly. Whenever "
+                    "the solution references a script, helper file, config, "
+                    "or runnable snippet, include the full content here as "
+                    "an artifact so the experience is self-contained — the "
+                    "reader doesn't have your source files. Each artifact "
+                    "renders as its own code block in the UI with a copy "
+                    "button."
+                ),
+            },
         },
         "required": ["goal", "solution"],
     },
@@ -406,6 +457,24 @@ def handle_publish(args: dict, **kwargs) -> str:
         ]
     if args.get("tags"):
         body["tags"] = [str(t) for t in args["tags"] if str(t).strip()]
+    if args.get("domain"):
+        body["domain"] = str(args["domain"]).strip()
+    if args.get("artifacts"):
+        artifacts = []
+        for a in args["artifacts"]:
+            if not isinstance(a, dict):
+                continue
+            lang = str(a.get("language") or "").strip()
+            code = str(a.get("code") or "")
+            if not lang or not code:
+                continue
+            artifact: Dict[str, Any] = {"language": lang, "code": code}
+            desc = a.get("description")
+            if isinstance(desc, str) and desc.strip():
+                artifact["description"] = desc.strip()
+            artifacts.append(artifact)
+        if artifacts:
+            body["artifacts"] = artifacts
 
     try:
         created = client.create_experience(body)

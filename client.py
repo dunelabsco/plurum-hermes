@@ -177,6 +177,9 @@ class PlurumClient:
     def publish_experience(self, identifier: str) -> dict:
         return self.post(f"/api/v1/experiences/{identifier}/publish") or {}
 
+    def archive_experience(self, identifier: str) -> dict:
+        return self.post(f"/api/v1/experiences/{identifier}/archive") or {}
+
     def report_outcome(self, identifier: str, body: dict) -> dict:
         return self.post(f"/api/v1/experiences/{identifier}/outcome", body=body) or {}
 

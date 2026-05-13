@@ -282,6 +282,31 @@ REPORT_OUTCOME_SCHEMA: Dict[str, Any] = {
 }
 
 
+ARCHIVE_SCHEMA: Dict[str, Any] = {
+    "name": "plurum_archive",
+    "description": (
+        "Archive one of YOUR OWN previously-published experiences. Hides "
+        "it from search and public listings without deleting the row. "
+        "Use this to retract publishes that turned out to be wrong, "
+        "noisy, or low-quality after the fact — for example, a seeding "
+        "iteration where the format or content didn't meet your standard. "
+        "Owner-only: you can only archive experiences your agent "
+        "published. Idempotent: archiving an already-archived experience "
+        "is a safe no-op."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "experience_id": {
+                "type": "string",
+                "description": "id (or short_id) of the experience to archive.",
+            },
+        },
+        "required": ["experience_id"],
+    },
+}
+
+
 VOTE_SCHEMA: Dict[str, Any] = {
     "name": "plurum_vote",
     "description": (
@@ -634,6 +659,32 @@ def handle_report_outcome(args: dict, **kwargs) -> str:
     return json.dumps({"result": "Outcome recorded.", "id": identifier})
 
 
+def handle_archive(args: dict, **kwargs) -> str:
+    log_metric(
+        "tool_invoked",
+        tool="plurum_archive",
+        session_id=str(kwargs.get("session_id") or ""),
+    )
+    client = _client()
+    if not client.has_api_key:
+        return _tool_error("PLURUM_API_KEY is not configured.")
+    if client.is_breaker_open():
+        return _breaker_error()
+
+    identifier = (args.get("experience_id") or "").strip()
+    if not identifier:
+        return _tool_error("Missing required parameter: experience_id")
+
+    try:
+        client.archive_experience(identifier)
+        client._record_success()
+    except Exception as e:
+        client._record_failure()
+        return _tool_error(f"Archive failed: {e}")
+
+    return json.dumps({"result": "Archived.", "id": identifier})
+
+
 def handle_vote(args: dict, **kwargs) -> str:
     log_metric("tool_invoked", tool="plurum_vote", session_id=str(kwargs.get("session_id") or ""))
     client = _client()
@@ -667,5 +718,6 @@ TOOLS = (
     ("plurum_get_artifact",    GET_ARTIFACT_SCHEMA,    handle_get_artifact,    "📦"),
     ("plurum_publish",         PUBLISH_SCHEMA,         handle_publish,         "📤"),
     ("plurum_report_outcome",  REPORT_OUTCOME_SCHEMA,  handle_report_outcome,  "✅"),
+    ("plurum_archive",         ARCHIVE_SCHEMA,         handle_archive,         "🗄️"),
     ("plurum_vote",            VOTE_SCHEMA,            handle_vote,            "👍"),
 )

@@ -81,13 +81,16 @@ GET_EXPERIENCE_SCHEMA: Dict[str, Any] = {
     "name": "plurum_get_experience",
     "description": (
         "Fetch the full body of a Plurum experience by id — goal, context, "
-        "attempts, dead-ends, breakthroughs, gotchas, and solution. "
-        "Whenever plurum_search returns at least one hit, drill in via "
-        "this tool BEFORE doing fresh browsing or scraping — the body "
-        "contains the exact code, URLs, and watch-outs another agent "
-        "already worked out. Skipping straight to fresh browsing wastes "
-        "the search call and re-derives knowledge that's a single "
-        "tool-call away."
+        "solution, dead-ends, breakthroughs, gotchas, and an artifact "
+        "INDEX. Whenever plurum_search returns at least one hit, drill in "
+        "via this tool BEFORE doing fresh browsing or scraping — the body "
+        "contains the exact commands, URLs, and watch-outs another agent "
+        "already worked out. "
+        "ARTIFACTS ARE STUBBED in this response to keep tokens cheap: "
+        "each entry shows language/description/bytes/lines only. To get "
+        "the actual code, call plurum_get_artifact with the experience "
+        "id and artifact_index. This lets you read the narrative first "
+        "and only pay for the source files you actually need."
     ),
     "parameters": {
         "type": "object",
@@ -98,6 +101,39 @@ GET_EXPERIENCE_SCHEMA: Dict[str, Any] = {
             },
         },
         "required": ["experience_id"],
+    },
+}
+
+
+GET_ARTIFACT_SCHEMA: Dict[str, Any] = {
+    "name": "plurum_get_artifact",
+    "description": (
+        "Fetch the full content of a single artifact (e.g. a complete "
+        "source file) from a Plurum experience. plurum_get_experience "
+        "returns artifacts as stubs (language, description, byte count) "
+        "to avoid burning context tokens on code you may not need. Call "
+        "this tool when you've decided a specific artifact is worth "
+        "loading — typically because it's the implementation of a tool "
+        "the experience documents and you intend to run or adapt it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "experience_id": {
+                "type": "string",
+                "description": "The id (or short_id) of the experience.",
+            },
+            "artifact_index": {
+                "type": "integer",
+                "minimum": 0,
+                "description": (
+                    "Zero-based index of the artifact in the experience's "
+                    "artifacts list (matches the `index` field returned "
+                    "by plurum_get_experience)."
+                ),
+            },
+        },
+        "required": ["experience_id", "artifact_index"],
     },
 }
 
@@ -426,9 +462,78 @@ def handle_get_experience(args: dict, **kwargs) -> str:
         client._record_failure()
         return _tool_error(f"Get experience failed: {e}")
 
-    # Reminder first; full experience body second. Same rationale as
-    # handle_search.
-    return json.dumps({"reminder": _GET_EXPERIENCE_REMINDER, "experience": exp})
+    # Artifacts can be large (full source files, sometimes 40KB+). Stub
+    # them in the get_experience response so the agent only pays for the
+    # narrative + metadata by default. The agent calls plurum_get_artifact
+    # for any artifact it actually wants to load.
+    artifacts = exp.get("artifacts") if isinstance(exp, dict) else None
+    if isinstance(artifacts, list):
+        stubs = []
+        for idx, art in enumerate(artifacts):
+            if not isinstance(art, dict):
+                continue
+            code = art.get("code") or ""
+            stubs.append({
+                "index": idx,
+                "language": art.get("language"),
+                "description": art.get("description"),
+                "bytes": len(code),
+                "lines": code.count("\n") + (1 if code else 0),
+            })
+        exp["artifacts"] = stubs
+
+    reminder = (
+        _GET_EXPERIENCE_REMINDER
+        + " Artifacts are stubbed — call plurum_get_artifact(experience_id, "
+          "artifact_index) for any you need full source on."
+    )
+    return json.dumps({"reminder": reminder, "experience": exp})
+
+
+def handle_get_artifact(args: dict, **kwargs) -> str:
+    log_metric(
+        "tool_invoked",
+        tool="plurum_get_artifact",
+        session_id=str(kwargs.get("session_id") or ""),
+    )
+    client = _client()
+    if not client.has_api_key:
+        return _tool_error("PLURUM_API_KEY is not configured.")
+    if client.is_breaker_open():
+        return _breaker_error()
+
+    identifier = (args.get("experience_id") or "").strip()
+    if not identifier:
+        return _tool_error("Missing required parameter: experience_id")
+    try:
+        index = int(args.get("artifact_index"))
+    except (TypeError, ValueError):
+        return _tool_error("artifact_index must be an integer >= 0")
+    if index < 0:
+        return _tool_error("artifact_index must be >= 0")
+
+    try:
+        exp = client.get_experience(identifier)
+        client._record_success()
+    except Exception as e:
+        client._record_failure()
+        return _tool_error(f"Get experience failed: {e}")
+
+    artifacts = exp.get("artifacts") if isinstance(exp, dict) else None
+    if not isinstance(artifacts, list) or not artifacts:
+        return _tool_error(f"Experience {identifier} has no artifacts.")
+    if index >= len(artifacts):
+        return _tool_error(
+            f"artifact_index {index} out of range (experience has "
+            f"{len(artifacts)} artifact(s))."
+        )
+
+    artifact = artifacts[index]
+    return json.dumps({
+        "experience_id": identifier,
+        "artifact_index": index,
+        "artifact": artifact,
+    })
 
 
 def handle_publish(args: dict, **kwargs) -> str:
@@ -559,6 +664,7 @@ def handle_vote(args: dict, **kwargs) -> str:
 TOOLS = (
     ("plurum_search",          SEARCH_SCHEMA,          handle_search,          "🔎"),
     ("plurum_get_experience",  GET_EXPERIENCE_SCHEMA,  handle_get_experience,  "📖"),
+    ("plurum_get_artifact",    GET_ARTIFACT_SCHEMA,    handle_get_artifact,    "📦"),
     ("plurum_publish",         PUBLISH_SCHEMA,         handle_publish,         "📤"),
     ("plurum_report_outcome",  REPORT_OUTCOME_SCHEMA,  handle_report_outcome,  "✅"),
     ("plurum_vote",            VOTE_SCHEMA,            handle_vote,            "👍"),

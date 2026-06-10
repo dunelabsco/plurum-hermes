@@ -82,6 +82,13 @@ class PlurumClient:
     without crashing the agent loop.
     """
 
+    # Breaker state is class-level on purpose: handlers construct a fresh
+    # client per tool call (so config changes are picked up without a
+    # restart), but failure history must survive across calls or the
+    # breaker can never reach its threshold.
+    _consecutive_failures = 0
+    _breaker_open_until = 0.0
+
     def __init__(self, api_url: Optional[str] = None, api_key: Optional[str] = None):
         if api_url is None or api_key is None:
             cfg = load_config()
@@ -89,8 +96,6 @@ class PlurumClient:
             api_key = api_key or cfg.get("api_key") or ""
         self.api_url = api_url.rstrip("/")
         self.api_key = api_key
-        self._consecutive_failures = 0
-        self._breaker_open_until = 0.0
 
     @property
     def has_api_key(self) -> bool:
@@ -99,24 +104,26 @@ class PlurumClient:
     # -- Breaker accessors --------------------------------------------------
 
     def is_breaker_open(self) -> bool:
-        if self._consecutive_failures < _BREAKER_THRESHOLD:
+        cls = type(self)
+        if cls._consecutive_failures < _BREAKER_THRESHOLD:
             return False
-        if time.monotonic() >= self._breaker_open_until:
-            self._consecutive_failures = 0
+        if time.monotonic() >= cls._breaker_open_until:
+            cls._consecutive_failures = 0
             return False
         return True
 
     def _record_success(self) -> None:
-        self._consecutive_failures = 0
+        type(self)._consecutive_failures = 0
 
     def _record_failure(self) -> None:
-        self._consecutive_failures += 1
-        if self._consecutive_failures >= _BREAKER_THRESHOLD:
-            self._breaker_open_until = time.monotonic() + _BREAKER_COOLDOWN_SECS
+        cls = type(self)
+        cls._consecutive_failures += 1
+        if cls._consecutive_failures >= _BREAKER_THRESHOLD:
+            cls._breaker_open_until = time.monotonic() + _BREAKER_COOLDOWN_SECS
             logger.warning(
                 "Plurum circuit breaker tripped after %d consecutive failures; "
                 "pausing API calls for %ds.",
-                self._consecutive_failures, _BREAKER_COOLDOWN_SECS,
+                cls._consecutive_failures, _BREAKER_COOLDOWN_SECS,
             )
 
     # -- Core request -------------------------------------------------------

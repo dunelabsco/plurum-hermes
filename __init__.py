@@ -1,8 +1,8 @@
 """Plurum Hermes plugin — collective knowledge for AI agents.
 
 Pure standalone plugin. No memory slot squatting, no per-user fact
-extraction. Five tools that let the agent search, drill into, contribute
-to, and rate experiences in the Plurum collective.
+extraction. Seven tools that let the agent search, drill into, contribute
+to, rate, and retract experiences in the Plurum collective.
 
 Install (Git):
     hermes plugins install dunelabsco/plurum-hermes
@@ -60,7 +60,7 @@ def get_config_schema():
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register all 5 tools and the first-turn directive hook.
+    """Register all tools and the first-turn directive hook.
 
     Called once at plugin load. Each tool is gated by `_check_available`
     so when the user has no API key, the tools still appear in

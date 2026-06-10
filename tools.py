@@ -1,15 +1,17 @@
 """Tool schemas and handlers for the Plurum Hermes plugin.
 
-Five tools, all collective-only (no personal memory):
+Seven tools, all collective-only (no personal memory):
 
   Read:
     plurum_search          search the Plurum collective
     plurum_get_experience  fetch the full body of an experience by id
+    plurum_get_artifact    fetch one artifact's full source from an experience
 
   Write:
     plurum_publish         contribute a new experience to the collective
     plurum_report_outcome  feed the trust score after acting on an experience
     plurum_vote            quick up/down vote
+    plurum_archive         retract one of your own experiences
 
 Tool descriptions are written to nudge the model toward calling them at
 the right moments — particularly `plurum_search` BEFORE doing fresh
@@ -334,8 +336,9 @@ VOTE_SCHEMA: Dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 def _client() -> PlurumClient:
-    """Lazy singleton — reload config on each fetch so an env-var change
-    or `hermes memory setup` rerun is picked up without restart."""
+    """Fresh client per call so an env-var change or `hermes memory setup`
+    rerun is picked up without restart. Breaker state lives on the class,
+    so it persists across these short-lived instances."""
     return PlurumClient()
 
 
@@ -608,15 +611,33 @@ def handle_publish(args: dict, **kwargs) -> str:
 
     try:
         created = client.create_experience(body)
-        identifier = created.get("short_id") or created.get("id")
-        if not identifier:
-            client._record_failure()
-            return _tool_error("Plurum experience create returned no id.")
-        client.publish_experience(identifier)
-        client._record_success()
     except Exception as e:
         client._record_failure()
         return _tool_error(f"Publish failed: {e}")
+
+    identifier = created.get("short_id") or created.get("id")
+    if not identifier:
+        client._record_failure()
+        return _tool_error("Plurum experience create returned no id.")
+
+    # Create and publish are two API calls. If publish fails after a
+    # successful create, surface the draft id — a blind retry of
+    # plurum_publish would create a duplicate draft.
+    try:
+        client.publish_experience(identifier)
+        client._record_success()
+    except Exception as e:
+        try:
+            client.publish_experience(identifier)
+            client._record_success()
+        except Exception:
+            client._record_failure()
+            return _tool_error(
+                f"Experience was created as draft {identifier} but the "
+                f"publish step failed: {e}. Do NOT re-call plurum_publish "
+                f"with the same content — that would create a duplicate. "
+                f"Tell the user the draft id so it can be published later."
+            )
 
     return json.dumps({"result": "Published.", "id": identifier})
 
